@@ -6,6 +6,7 @@ import "time"
 type Data struct {
 	Symbol            string
 	CurrentPrice      float64
+	PriceChange15m    float64 // 15分钟价格变化百分比
 	PriceChange1h     float64 // 1小时价格变化百分比
 	PriceChange4h     float64 // 4小时价格变化百分比
 	CurrentEMA20      float64
@@ -23,13 +24,21 @@ type OIData struct {
 	Average float64
 }
 
-// IntradayData 日内数据(3分钟间隔)
+// IntradayData 日内数据(多时间框架)
 type IntradayData struct {
-	MidPrices   []float64
-	EMA20Values []float64
-	MACDValues  []float64
-	RSI7Values  []float64
-	RSI14Values []float64
+	// 3分钟数据序列
+	MidPrices3m   []float64
+	EMA20Values3m []float64
+	MACDValues3m  []float64
+	RSI7Values3m  []float64
+	RSI14Values3m []float64
+
+	// 15分钟数据序列
+	MidPrices15m   []float64
+	EMA20Values15m []float64
+	MACDValues15m  []float64
+	RSI7Values15m  []float64
+	RSI14Values15m []float64
 }
 
 // LongerTermData 长期数据(4小时时间框架)
