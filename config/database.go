@@ -1131,7 +1131,7 @@ func (d *Database) GetTraderConfig(userID, traderID string) (*TraderRecord, *AIM
 
 	err := d.db.QueryRow(`
 		SELECT
-			t.id, t.user_id, t.name, t.ai_model_id, t.exchange_id, t.initial_balance, COALESCE(t.true_initial_balance, t.initial_balance) as true_initial_balance, t.scan_interval_minutes, t.is_running,
+			t.id, t.user_id, t.name, t.ai_model_id, t.exchange_id, t.initial_balance, t.scan_interval_minutes, t.is_running,
 			COALESCE(t.btc_eth_leverage, 5) as btc_eth_leverage,
 			COALESCE(t.altcoin_leverage, 5) as altcoin_leverage,
 			COALESCE(t.trading_symbols, '') as trading_symbols,
@@ -1158,7 +1158,7 @@ func (d *Database) GetTraderConfig(userID, traderID string) (*TraderRecord, *AIM
 		WHERE t.id = ? AND t.user_id = ?
 	`, traderID, userID).Scan(
 		&trader.ID, &trader.UserID, &trader.Name, &trader.AIModelID, &trader.ExchangeID,
-		&trader.InitialBalance, &trader.TrueInitialBalance, &trader.ScanIntervalMinutes, &trader.IsRunning,
+		&trader.InitialBalance, &trader.ScanIntervalMinutes, &trader.IsRunning,
 		&trader.BTCETHLeverage, &trader.AltcoinLeverage, &trader.TradingSymbols,
 		&trader.UseCoinPool, &trader.UseOITop,
 		&trader.CustomPrompt, &trader.OverrideBasePrompt, &trader.SystemPromptTemplate,
