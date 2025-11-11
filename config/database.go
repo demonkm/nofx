@@ -153,7 +153,6 @@ func (d *Database) createTables() error {
 			ai_model_id TEXT NOT NULL,
 			exchange_id TEXT NOT NULL,
 			initial_balance REAL NOT NULL,
-			true_initial_balance REAL NOT NULL,
 			scan_interval_minutes INTEGER DEFAULT 3,
 			is_running BOOLEAN DEFAULT 0,
 			btc_eth_leverage INTEGER DEFAULT 5,
@@ -256,7 +255,6 @@ func (d *Database) createTables() error {
 		`ALTER TABLE traders ADD COLUMN use_coin_pool BOOLEAN DEFAULT 0`,               // 是否使用COIN POOL信号源
 		`ALTER TABLE traders ADD COLUMN use_oi_top BOOLEAN DEFAULT 0`,                  // 是否使用OI TOP信号源
 		`ALTER TABLE traders ADD COLUMN system_prompt_template TEXT DEFAULT 'default'`, // 系统提示词模板名称
-		`ALTER TABLE traders ADD COLUMN true_initial_balance REAL NOT NULL DEFAULT 0`,  // 真正的初始余额（永不改变）
 		`ALTER TABLE ai_models ADD COLUMN custom_api_url TEXT DEFAULT ''`,              // 自定义API地址
 		`ALTER TABLE ai_models ADD COLUMN custom_model_name TEXT DEFAULT ''`,           // 自定义模型名称
 	}
@@ -270,12 +268,6 @@ func (d *Database) createTables() error {
 	err := d.migrateExchangesTable()
 	if err != nil {
 		log.Printf("⚠️ 迁移exchanges表失败: %v", err)
-	}
-
-	// 迁移 true_initial_balance 字段
-	err = d.migrateTrueInitialBalance()
-	if err != nil {
-		log.Printf("⚠️ 迁移true_initial_balance字段失败: %v", err)
 	}
 
 	return nil
@@ -429,136 +421,6 @@ func (d *Database) migrateExchangesTable() error {
 	return nil
 }
 
-// migrateTrueInitialBalance 迁移 true_initial_balance 字段
-func (d *Database) migrateTrueInitialBalance() error {
-	log.Printf("🔄 开始迁移 true_initial_balance 字段...")
-
-	// 获取所有需要迁移的交易员
-	rows, err := d.db.Query(`
-		SELECT id, user_id, initial_balance
-		FROM traders
-		WHERE true_initial_balance = 0 OR true_initial_balance IS NULL
-	`)
-	if err != nil {
-		return fmt.Errorf("查询交易员失败: %w", err)
-	}
-	defer rows.Close()
-
-	var updatedCount int
-	for rows.Next() {
-		var traderID, userID string
-		var currentInitialBalance float64
-
-		if err := rows.Scan(&traderID, &userID, &currentInitialBalance); err != nil {
-			log.Printf("⚠️ 扫描交易员记录失败: %v", err)
-			continue
-		}
-
-		// 尝试从决策日志中找到最早的真实初始余额
-		trueInitialBalance, err := d.getTrueInitialBalanceFromHistory(traderID, userID)
-		if err != nil {
-			log.Printf("⚠️ 无法从历史记录获取交易员 %s 的真实初始余额: %v", traderID, err)
-			// 如果无法从历史记录获取，使用当前的 initial_balance
-			trueInitialBalance = currentInitialBalance
-		}
-
-		// 更新 true_initial_balance
-		_, err = d.db.Exec(`
-			UPDATE traders
-			SET true_initial_balance = ?
-			WHERE id = ?
-		`, trueInitialBalance, traderID)
-
-		if err != nil {
-			log.Printf("⚠️ 更新交易员 %s 的 true_initial_balance 失败: %v", traderID, err)
-		} else {
-			updatedCount++
-			if trueInitialBalance != currentInitialBalance {
-				log.Printf("✓ 交易员 %s: 真正初始余额=%.2f, 当前基准余额=%.2f", traderID, trueInitialBalance, currentInitialBalance)
-			} else {
-				log.Printf("✓ 交易员 %s: 设置初始余额=%.2f", traderID, trueInitialBalance)
-			}
-		}
-	}
-
-	if updatedCount > 0 {
-		log.Printf("✓ 已更新 %d 个交易员的 true_initial_balance 字段", updatedCount)
-	} else {
-		log.Printf("✓ 所有交易员的 true_initial_balance 字段已存在，无需迁移")
-	}
-
-	return nil
-}
-
-// getTrueInitialBalanceFromHistory 从决策日志历史记录中获取真正的初始余额
-func (d *Database) getTrueInitialBalanceFromHistory(traderID, userID string) (float64, error) {
-	// 尝试读取最早的决策记录来获取初始余额
-	// 这里我们简化处理：如果找不到历史记录，返回当前值
-	// 在实际部署中，可以通过读取文件系统或添加专门的历史记录表来改进
-
-	return 0, fmt.Errorf("历史记录功能需要进一步实现")
-}
-
-// FixTrueInitialBalance 手动修复指定交易员的 true_initial_balance
-// 这个函数用于紧急修复，直接设置正确的初始余额
-func (d *Database) FixTrueInitialBalance(traderID string, correctInitialBalance float64) error {
-	result, err := d.db.Exec(`
-		UPDATE traders
-		SET true_initial_balance = ?
-		WHERE id = ?
-	`, correctInitialBalance, traderID)
-
-	if err != nil {
-		return fmt.Errorf("修复交易员 %s 的 true_initial_balance 失败: %w", traderID, err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected > 0 {
-		log.Printf("✓ 已修复交易员 %s 的 true_initial_balance 为 %.2f", traderID, correctInitialBalance)
-		return nil
-	}
-
-	return fmt.Errorf("未找到交易员 %s", traderID)
-}
-
-// GetAllTradersWithBalanceIssues 获取所有初始余额可能有问题的交易员
-func (d *Database) GetAllTradersWithBalanceIssues() ([]map[string]interface{}, error) {
-	rows, err := d.db.Query(`
-		SELECT id, name, initial_balance, true_initial_balance, created_at
-		FROM traders
-		WHERE true_initial_balance = 0
-		   OR true_initial_balance IS NULL
-		ORDER BY created_at
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var traders []map[string]interface{}
-	for rows.Next() {
-		var id, name string
-		var initialBalance, trueInitialBalance float64
-		var createdAt string
-
-		err := rows.Scan(&id, &name, &initialBalance, &trueInitialBalance, &createdAt)
-		if err != nil {
-			continue
-		}
-
-		traders = append(traders, map[string]interface{}{
-			"id":                   id,
-			"name":                 name,
-			"initial_balance":      initialBalance,
-			"true_initial_balance": trueInitialBalance,
-			"created_at":           createdAt,
-			"needs_fix":           trueInitialBalance == 0 || trueInitialBalance == initialBalance,
-		})
-	}
-
-	return traders, nil
-}
-
 // User 用户配置
 type User struct {
 	ID           string    `json:"id"`
@@ -613,7 +475,6 @@ type TraderRecord struct {
 	AIModelID            string    `json:"ai_model_id"`
 	ExchangeID           string    `json:"exchange_id"`
 	InitialBalance       float64   `json:"initial_balance"`
-	TrueInitialBalance   float64   `json:"true_initial_balance"`
 	ScanIntervalMinutes  int       `json:"scan_interval_minutes"`
 	IsRunning            bool      `json:"is_running"`
 	BTCETHLeverage       int       `json:"btc_eth_leverage"`       // BTC/ETH杠杆倍数
@@ -1039,16 +900,16 @@ func (d *Database) CreateExchange(userID, id, name, typ string, enabled bool, ap
 // CreateTrader 创建交易员
 func (d *Database) CreateTrader(trader *TraderRecord) error {
 	_, err := d.db.Exec(`
-		INSERT INTO traders (id, user_id, name, ai_model_id, exchange_id, initial_balance, true_initial_balance, scan_interval_minutes, is_running, btc_eth_leverage, altcoin_leverage, trading_symbols, use_coin_pool, use_oi_top, custom_prompt, override_base_prompt, system_prompt_template, is_cross_margin)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, trader.ID, trader.UserID, trader.Name, trader.AIModelID, trader.ExchangeID, trader.InitialBalance, trader.TrueInitialBalance, trader.ScanIntervalMinutes, trader.IsRunning, trader.BTCETHLeverage, trader.AltcoinLeverage, trader.TradingSymbols, trader.UseCoinPool, trader.UseOITop, trader.CustomPrompt, trader.OverrideBasePrompt, trader.SystemPromptTemplate, trader.IsCrossMargin)
+		INSERT INTO traders (id, user_id, name, ai_model_id, exchange_id, initial_balance, scan_interval_minutes, is_running, btc_eth_leverage, altcoin_leverage, trading_symbols, use_coin_pool, use_oi_top, custom_prompt, override_base_prompt, system_prompt_template, is_cross_margin)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, trader.ID, trader.UserID, trader.Name, trader.AIModelID, trader.ExchangeID, trader.InitialBalance, trader.ScanIntervalMinutes, trader.IsRunning, trader.BTCETHLeverage, trader.AltcoinLeverage, trader.TradingSymbols, trader.UseCoinPool, trader.UseOITop, trader.CustomPrompt, trader.OverrideBasePrompt, trader.SystemPromptTemplate, trader.IsCrossMargin)
 	return err
 }
 
 // GetTraders 获取用户的交易员
 func (d *Database) GetTraders(userID string) ([]*TraderRecord, error) {
 	rows, err := d.db.Query(`
-		SELECT id, user_id, name, ai_model_id, exchange_id, initial_balance, COALESCE(true_initial_balance, initial_balance) as true_initial_balance, scan_interval_minutes, is_running,
+		SELECT id, user_id, name, ai_model_id, exchange_id, initial_balance, scan_interval_minutes, is_running,
 		       COALESCE(btc_eth_leverage, 5) as btc_eth_leverage, COALESCE(altcoin_leverage, 5) as altcoin_leverage,
 		       COALESCE(trading_symbols, '') as trading_symbols,
 		       COALESCE(use_coin_pool, 0) as use_coin_pool, COALESCE(use_oi_top, 0) as use_oi_top,
@@ -1067,7 +928,7 @@ func (d *Database) GetTraders(userID string) ([]*TraderRecord, error) {
 		var trader TraderRecord
 		err := rows.Scan(
 			&trader.ID, &trader.UserID, &trader.Name, &trader.AIModelID, &trader.ExchangeID,
-			&trader.InitialBalance, &trader.TrueInitialBalance, &trader.ScanIntervalMinutes, &trader.IsRunning,
+			&trader.InitialBalance, &trader.ScanIntervalMinutes, &trader.IsRunning,
 			&trader.BTCETHLeverage, &trader.AltcoinLeverage, &trader.TradingSymbols,
 			&trader.UseCoinPool, &trader.UseOITop,
 			&trader.CustomPrompt, &trader.OverrideBasePrompt, &trader.SystemPromptTemplate,
@@ -1093,12 +954,12 @@ func (d *Database) UpdateTraderStatus(userID, id string, isRunning bool) error {
 func (d *Database) UpdateTrader(trader *TraderRecord) error {
 	_, err := d.db.Exec(`
 		UPDATE traders SET
-			name = ?, ai_model_id = ?, exchange_id = ?, initial_balance = ?, true_initial_balance = ?,
+			name = ?, ai_model_id = ?, exchange_id = ?, initial_balance = ?,
 			scan_interval_minutes = ?, btc_eth_leverage = ?, altcoin_leverage = ?,
 			trading_symbols = ?, custom_prompt = ?, override_base_prompt = ?,
 			system_prompt_template = ?, is_cross_margin = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND user_id = ?
-	`, trader.Name, trader.AIModelID, trader.ExchangeID, trader.InitialBalance, trader.TrueInitialBalance,
+	`, trader.Name, trader.AIModelID, trader.ExchangeID, trader.InitialBalance,
 		trader.ScanIntervalMinutes, trader.BTCETHLeverage, trader.AltcoinLeverage,
 		trader.TradingSymbols, trader.CustomPrompt, trader.OverrideBasePrompt,
 		trader.SystemPromptTemplate, trader.IsCrossMargin, trader.ID, trader.UserID)

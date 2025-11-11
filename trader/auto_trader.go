@@ -55,8 +55,7 @@ type AutoTraderConfig struct {
 	ScanInterval time.Duration // 扫描间隔（建议3分钟）
 
 	// 账户配置
-	InitialBalance     float64 // 初始金额（基准余额，会动态调整，用于风险控制）
-	TrueInitialBalance float64 // 真正的初始金额（永不改变，用于盈亏计算）
+	InitialBalance float64 // 初始金额（用于计算盈亏，需手动设置）
 
 	// 杠杆配置
 	BTCETHLeverage  int // BTC和ETH的杠杆倍数
@@ -88,8 +87,7 @@ type AutoTrader struct {
 	trader                Trader // 使用Trader接口（支持多平台）
 	mcpClient             *mcp.Client
 	decisionLogger        *logger.DecisionLogger // 决策日志记录器
-	initialBalance        float64  // 基准余额（会动态调整，用于风险控制）
-	trueInitialBalance    float64  // 真正的初始余额（永不改变，用于盈亏计算）
+	initialBalance        float64
 	dailyPnL              float64
 	customPrompt          string   // 自定义交易策略prompt
 	overrideBasePrompt    bool     // 是否覆盖基础prompt
@@ -210,10 +208,6 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		systemPromptTemplate = "adaptive"
 	}
 
-	// 🐛 调试日志：检查初始余额设置
-	log.Printf("🔍 [%s] AutoTrader初始化: 基准余额=%.2f, 真实初始余额=%.2f",
-		config.Name, config.InitialBalance, config.TrueInitialBalance)
-
 	return &AutoTrader{
 		id:                    config.ID,
 		name:                  config.Name,
@@ -224,7 +218,6 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		mcpClient:             mcpClient,
 		decisionLogger:        decisionLogger,
 		initialBalance:        config.InitialBalance,
-		trueInitialBalance:    config.TrueInitialBalance, // 使用配置中的真正初始余额
 		systemPromptTemplate:  systemPromptTemplate,
 		defaultCoins:          config.DefaultCoins,
 		tradingCoins:          config.TradingCoins,
@@ -683,16 +676,12 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		return nil, fmt.Errorf("获取候选币种失败: %w", err)
 	}
 
-	// 4. 计算总盈亏（使用真正的初始余额）
-	totalPnL := totalEquity - at.trueInitialBalance
+	// 4. 计算总盈亏
+	totalPnL := totalEquity - at.initialBalance
 	totalPnLPct := 0.0
-	if at.trueInitialBalance > 0 {
-		totalPnLPct = (totalPnL / at.trueInitialBalance) * 100
+	if at.initialBalance > 0 {
+		totalPnLPct = (totalPnL / at.initialBalance) * 100
 	}
-
-	// 🐛 调试日志：检查盈亏计算
-	log.Printf("🔍 [%s] 盈亏计算调试: 净值=%.2f, 真实初始余额=%.2f, 绝对盈亏=%.2f, 盈亏百分比=%.2f%%",
-		at.name, totalEquity, at.trueInitialBalance, totalPnL, totalPnLPct)
 
 	marginUsedPct := 0.0
 	if totalEquity > 0 {
@@ -1268,10 +1257,9 @@ func (at *AutoTrader) GetStatus() map[string]interface{} {
 		"is_running":      at.isRunning,
 		"start_time":      at.startTime.Format(time.RFC3339),
 		"runtime_minutes": int(time.Since(at.startTime).Minutes()),
-		"call_count":        at.callCount,
-		"initial_balance":   at.initialBalance,       // 基准余额（可能动态调整）
-		"true_initial_balance": at.trueInitialBalance, // 真正的初始余额（永不改变）
-		"scan_interval":     at.config.ScanInterval.String(),
+		"call_count":      at.callCount,
+		"initial_balance": at.initialBalance,
+		"scan_interval":   at.config.ScanInterval.String(),
 		"stop_until":      at.stopUntil.Format(time.RFC3339),
 		"last_reset_time": at.lastResetTime.Format(time.RFC3339),
 		"ai_provider":     aiProvider,

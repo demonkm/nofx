@@ -230,7 +230,6 @@ func (tm *TraderManager) addTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		CustomModelName:       aiModelCfg.CustomModelName, // 自定义模型名称
 		ScanInterval:          time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
 		InitialBalance:        traderCfg.InitialBalance,
-		TrueInitialBalance:    traderCfg.TrueInitialBalance,
 		BTCETHLeverage:        traderCfg.BTCETHLeverage,
 		AltcoinLeverage:       traderCfg.AltcoinLeverage,
 		MaxDailyLoss:          maxDailyLoss,
@@ -338,7 +337,6 @@ func (tm *TraderManager) AddTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		CustomModelName:       aiModelCfg.CustomModelName, // 自定义模型名称
 		ScanInterval:          time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
 		InitialBalance:        traderCfg.InitialBalance,
-		TrueInitialBalance:    traderCfg.TrueInitialBalance,
 		BTCETHLeverage:        traderCfg.BTCETHLeverage,
 		AltcoinLeverage:       traderCfg.AltcoinLeverage,
 		MaxDailyLoss:          maxDailyLoss,

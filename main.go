@@ -162,60 +162,8 @@ func main() {
 
 	// 初始化数据库配置
 	dbPath := "config.db"
-
-	// 检查命令行参数
 	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "--fix-balance":
-			// 修复初始余额：./nofx --fix-balance <trader_id> <correct_balance>
-			if len(os.Args) < 4 {
-				log.Fatalf("❌ 使用方法: ./nofx --fix-balance <trader_id> <correct_balance>")
-			}
-			traderID := os.Args[2]
-			correctBalance, err := strconv.ParseFloat(os.Args[3], 64)
-			if err != nil {
-				log.Fatalf("❌ 无效的余额数值: %v", err)
-			}
-
-			// 初始化数据库进行修复
-			db, err := config.NewDatabase(dbPath)
-			if err != nil {
-				log.Fatalf("❌ 初始化数据库失败: %v", err)
-			}
-			defer db.Close()
-
-			err = db.FixTrueInitialBalance(traderID, correctBalance)
-			if err != nil {
-				log.Fatalf("❌ 修复失败: %v", err)
-			}
-			log.Printf("✅ 已修复交易员 %s 的初始余额为 %.2f", traderID, correctBalance)
-			return
-
-		case "--check-balance":
-			// 检查所有有余额问题的交易员：./nofx --check-balance
-			db, err := config.NewDatabase(dbPath)
-			if err != nil {
-				log.Fatalf("❌ 初始化数据库失败: %v", err)
-			}
-			defer db.Close()
-
-			traders, err := db.GetAllTradersWithBalanceIssues()
-			if err != nil {
-				log.Fatalf("❌ 查询失败: %v", err)
-			}
-
-			log.Printf("📊 发现 %d 个可能有余额问题的交易员:", len(traders))
-			for _, trader := range traders {
-				log.Printf("  - ID: %s, 名称: %s, 基准余额: %.2f, 真实初始余额: %.2f, 需要修复: %v",
-					trader["id"], trader["name"], trader["initial_balance"],
-					trader["true_initial_balance"], trader["needs_fix"])
-			}
-			return
-
-		default:
-			// 其他参数作为数据库路径
-			dbPath = os.Args[1]
-		}
+		dbPath = os.Args[1]
 	}
 
 	// 读取配置文件
