@@ -604,7 +604,8 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		Name:                 req.Name,
 		AIModelID:            req.AIModelID,
 		ExchangeID:           req.ExchangeID,
-		InitialBalance:       actualBalance, // 使用实际查询的余额
+		InitialBalance:       actualBalance,         // 使用实际查询的余额作为基准余额
+		TrueInitialBalance:   actualBalance,         // 真正的初始余额，创建时与基准余额相同
 		BTCETHLeverage:       btcEthLeverage,
 		AltcoinLeverage:      altcoinLeverage,
 		TradingSymbols:       req.TradingSymbols,
@@ -1541,22 +1542,31 @@ func (s *Server) handleEquityHistory(c *gin.Context) {
 		CycleNumber      int     `json:"cycle_number"`
 	}
 
-	// 从AutoTrader获取初始余额（用于计算盈亏百分比）
-	initialBalance := 0.0
+	// 从AutoTrader获取真正的初始余额（用于计算盈亏百分比）
+	trueInitialBalance := 0.0
 	if status := trader.GetStatus(); status != nil {
-		if ib, ok := status["initial_balance"].(float64); ok && ib > 0 {
-			initialBalance = ib
+		if ib, ok := status["true_initial_balance"].(float64); ok && ib > 0 {
+			trueInitialBalance = ib
 		}
 	}
 
-	// 如果无法从status获取，且有历史记录，则从第一条记录获取
-	if initialBalance == 0 && len(records) > 0 {
+	// 如果无法获取真正的初始余额，尝试使用基准余额
+	if trueInitialBalance == 0 {
+		if status := trader.GetStatus(); status != nil {
+			if ib, ok := status["initial_balance"].(float64); ok && ib > 0 {
+				trueInitialBalance = ib
+			}
+		}
+	}
+
+	// 如果仍然无法获取，且有历史记录，则从第一条记录获取
+	if trueInitialBalance == 0 && len(records) > 0 {
 		// 第一条记录的equity作为初始余额
-		initialBalance = records[0].AccountState.TotalBalance
+		trueInitialBalance = records[0].AccountState.TotalBalance
 	}
 
 	// 如果还是无法获取，返回错误
-	if initialBalance == 0 {
+	if trueInitialBalance == 0 {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "无法获取初始余额",
 		})
@@ -1570,10 +1580,10 @@ func (s *Server) handleEquityHistory(c *gin.Context) {
 		// TotalUnrealizedProfit字段实际存储的是TotalPnL（相对初始余额）
 		totalPnL := record.AccountState.TotalUnrealizedProfit
 
-		// 计算盈亏百分比
+		// 计算盈亏百分比（使用真正的初始余额）
 		totalPnLPct := 0.0
-		if initialBalance > 0 {
-			totalPnLPct = (totalPnL / initialBalance) * 100
+		if trueInitialBalance > 0 {
+			totalPnLPct = (totalPnL / trueInitialBalance) * 100
 		}
 
 		history = append(history, EquityPoint{
